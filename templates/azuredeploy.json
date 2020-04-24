@@ -1,0 +1,232 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "servicePrincipalId": {
+      "type": "string",
+      "metadata": {
+        "description": "The App ID of the Service Principal for the Logic App connection to Azure Resource Manager"
+      }
+    },
+    "servicePrincipalSecret": {
+      "type": "string",
+      "metadata": {
+        "description": "The Password of the Service Principal for the Logic App connection to Azure Resource Manager"
+      }
+    },
+    "logicAppName": {
+      "type": "string",
+      "defaultValue": "databoxedge-share-refresher"
+    },
+    "shareName": {
+      "type": "string",
+      "defaultValue": "myshare"
+    },
+    "tagName": {
+      "type": "string",
+      "defaultValue": "shareautorefresh"
+    },
+    "tagValue": {
+      "type": "string",
+      "defaultValue": "true"
+    }
+  },
+  "variables": {
+    "armConnectionName": "arm",
+    "armConnectionId": "[concat('/subscriptions/',subscription().subscriptionId,'/providers/Microsoft.Web/locations/', resourceGroup().location,'/managedApis/', variables('armConnectionName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('armConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "[variables('armConnectionName')]",
+        "parameterValues": {
+          "token:TenantId": "[subscription().tenantId]",
+          "token:clientId": "[parameters('servicePrincipalId')]",
+          "token:clientSecret": "[parameters('servicePrincipalSecret')]",
+          "token:resourceUri": "https://management.core.windows.net/",
+          "token:grantType": "client_credentials"
+        },
+        "api": {
+          "id": "[variables('armConnectionId')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('logicAppName')]",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', variables('armConnectionName'))]"
+      ],
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": {
+              "defaultValue": {
+              },
+              "type": "Object"
+            },
+            "SubscriptionId": {
+              "defaultValue": "[subscription().subscriptionId]",
+              "type": "String"
+            },
+            "ShareName": {
+              "defaultValue": "[parameters('shareName')]",
+              "type": "String"
+            },
+            "TagName": {
+              "defaultValue": "[parameters('tagName')]",
+              "type": "String"
+            },
+            "TagValue": {
+              "defaultValue": "[parameters('tagValue')]",
+              "type": "String"
+            }
+          },
+          "triggers": {
+            "Recurrence": {
+              "recurrence": {
+                "frequency": "Minute",
+                "interval": 10
+              },
+              "type": "Recurrence"
+            }
+          },
+          "actions": {
+            "For_each": {
+              "foreach": "@body('List_resources_by_subscription')?['value']",
+              "actions": {
+                "Extract_ResourceGroup": {
+                  "runAfter": {
+                    "Extract_SubscriptionID": [
+                      "Succeeded"
+                    ]
+                  },
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "ResourceGroup",
+                    "value": "@{split(item().id, '/')[4]}"
+                  }
+                },
+                "Extract_SubscriptionID": {
+                  "runAfter": {
+                  },
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "SubscriptionID",
+                    "value": "@{split(item().id, '/')[2]}"
+                  }
+                },
+                "Invoke_resource_operation": {
+                  "runAfter": {
+                    "Extract_ResourceGroup": [
+                      "Succeeded"
+                    ]
+                  },
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "host": {
+                      "connection": {
+                        "name": "@parameters('$connections')['arm_1']['connectionId']"
+                      }
+                    },
+                    "method": "post",
+                    "path": "/subscriptions/@{encodeURIComponent(parameters('SubscriptionId'))}/resourcegroups/@{encodeURIComponent(variables('ResourceGroup'))}/providers/@{encodeURIComponent('Microsoft.DataBoxEdge')}/@{encodeURIComponent('dataBoxEdgeDevices/',items('For_each')?['name'])}/@{encodeURIComponent('shares/',parameters('ShareName'),'/refresh')}",
+                    "queries": {
+                      "x-ms-api-version": "2019-08-01"
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "List_resources_by_subscription": [
+                  "Succeeded"
+                ]
+              },
+              "type": "Foreach",
+              "runtimeConfiguration": {
+                "concurrency": {
+                  "repetitions": 1
+                }
+              }
+            },
+            "Initialize_ResourceGroup": {
+              "runAfter": {
+                "Initialize_SubscriptionID": [
+                  "Succeeded"
+                ]
+              },
+              "type": "InitializeVariable",
+              "inputs": {
+                "variables": [
+                  {
+                    "name": "ResourceGroup",
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "Initialize_SubscriptionID": {
+              "runAfter": {
+              },
+              "type": "InitializeVariable",
+              "inputs": {
+                "variables": [
+                  {
+                    "name": "SubscriptionID",
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "List_resources_by_subscription": {
+              "runAfter": {
+                "Initialize_ResourceGroup": [
+                  "Succeeded"
+                ]
+              },
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['arm_1']['connectionId']"
+                  }
+                },
+                "method": "get",
+                "path": "/subscriptions/@{encodeURIComponent(parameters('SubscriptionId'))}/resources",
+                "queries": {
+                  "$filter": "tagName eq '@{parameters('TagName')}' and tagValue eq '@{parameters('TagValue')}'",
+                  "x-ms-api-version": "2016-06-01"
+                }
+              }
+            }
+          },
+          "outputs": {
+          }
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "arm_1": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('armConnectionName'))]",
+                "connectionName": "[variables('armConnectionName')]",
+                "id": "[variables('armConnectionId')]"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

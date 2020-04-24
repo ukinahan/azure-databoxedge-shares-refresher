@@ -1,0 +1,59 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the action will run. Triggers the workflow on push or pull request
+# events but only for the master branch
+on:
+  push:
+    branches: [ master ]
+
+env:
+  RESOURCE_GROUP: EdgeTest
+  LOCATION: eastus
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  deploy:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+    - uses: actions/checkout@v2
+
+    - name: Azure Login
+      uses: Azure/login@v1
+      with:
+        # Paste output of `az ad sp create-for-rbac` as value of secret variable: AZURE_CREDENTIALS
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Create and Assign Custom Role
+      uses: Azure/cli@v1.0.0
+      with:
+        # Creates the custom role only if needed
+        inlineScript: |
+          roleDefinitionId=$(az role definition list --name 'azure-databoxedge-share-refresher' --query '[0].name' -o tsv)
+
+          deploymentName=$(date +"%Y%m%d%H%M%s")
+
+          if [ $roleDefinitionId = "" ]; then
+            az deployment sub create -n "${deploymentName}-cr" -l ${{ env.LOCATION }} --template-uri https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/subscription-level-deployments/create-role-def/azuredeploy.json --parameters roleName='azure-databoxedge-share-refresher' --parameters actions='["*/read", "Microsoft.DataBoxEdge/dataBoxEdgeDevices/shares/refresh/action"]'
+  
+            roleDefinitionId=$(az role definition list --name 'azure-databoxedge-share-refresher' --query '[0].name' -o tsv)
+          fi
+
+          az deployment sub create -n "${deploymentName}-ra" -l ${{ env.LOCATION }} --template-uri https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/subscription-level-deployments/subscription-role-assigment/azuredeploy.json --parameters principalId=${{ secrets.SERVICE_PRINCIPAL_OBJECT_ID }} --parameters roleDefinitionId=$roleDefinitionId
+
+    - name: Deploy ARM Template
+      uses: Azure/cli@v1.0.0
+      with:
+        # Specify the script here
+        inlineScript: |
+          if [ $(az group exists --name ${{ env.RESOURCE_GROUP }}) = false ]; then
+            az group create --name ${{ env.RESOURCE_GROUP }} --location ${{ env.LOCATION }}
+          fi
+          deploymentName=$(date +"%Y%m%d%H%M%s")
+          az deployment group create -n $deploymentName -g ${{ env.RESOURCE_GROUP }} --template-file ./templates/azuredeploy.json --parameters servicePrincipalId=${{ secrets.SERVICE_PRINCIPAL_APP_ID }} --parameters servicePrincipalSecret=${{ secrets.SERVICE_PRINCIPAL_SECRET }}
