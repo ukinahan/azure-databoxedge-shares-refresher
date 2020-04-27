@@ -11,8 +11,7 @@ on:
 env:
   RESOURCE_GROUP: EdgeTest
   LOCATION: eastus
-  CUSTOM_ROLE_NAME: azure-databoxedge-share-refresher
-
+  CUSTOM_ROLE_NAME: ultanki-azsedge-refresh
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   # This workflow contains a single job called "build"
