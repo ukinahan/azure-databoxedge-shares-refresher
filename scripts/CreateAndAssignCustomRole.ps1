@@ -1,5 +1,5 @@
 Param(
-  [string] $RoleName = 'UltankiWriter',
+  [string] $RoleName = 'azure-databoxedge-shares-refresher',
   [string] $Location = 'eastus',
   [string] $ServicePrincipalId
 )
