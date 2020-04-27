@@ -1,4 +1,5 @@
 # This is a basic workflow to help you get started with Actions
+
 name: CI
 
 # Controls when the action will run. Triggers the workflow on push or pull request
@@ -10,6 +11,7 @@ on:
 env:
   RESOURCE_GROUP: EdgeTest
   LOCATION: eastus
+  CUSTOM_ROLE_NAME: azure-databoxedge-share-refresher
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -29,19 +31,22 @@ jobs:
         # Paste output of `az ad sp create-for-rbac` as value of secret variable: AZURE_CREDENTIALS
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Create and Assign Custom Role
+    - name: Create and Assign Custom Role 
       uses: Azure/cli@v1.0.0
       with:
         # Creates the custom role only if needed
         inlineScript: |
-          roleDefinitionId=$(az role definition list --name 'azure-databoxedge-share-refresher' --query '[0].name' -o tsv)
+          roleDefinitionId=$(az role definition list --name '${{ env.CUSTOM_ROLE_NAME }}' --query '[0].name' -o tsv)
 
           deploymentName=$(date +"%Y%m%d%H%M%s")
 
-          if [ $roleDefinitionId = "" ]; then
-            az deployment sub create -n "${deploymentName}-cr" -l ${{ env.LOCATION }} --template-uri https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/subscription-level-deployments/create-role-def/azuredeploy.json --parameters roleName='azure-databoxedge-share-refresher' --parameters actions='["*/read", "Microsoft.DataBoxEdge/dataBoxEdgeDevices/shares/refresh/action"]'
+          if [ -z "$roleDefinitionId" ]
+          then
+            az deployment sub create -n "${deploymentName}-cr" -l ${{ env.LOCATION }} --template-uri https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/subscription-level-deployments/create-role-def/azuredeploy.json --parameters roleName='${{ env.CUSTOM_ROLE_NAME }}' --parameters actions='["*/read", "Microsoft.DataBoxEdge/dataBoxEdgeDevices/shares/refresh/action"]'
   
-            roleDefinitionId=$(az role definition list --name 'azure-databoxedge-share-refresher' --query '[0].name' -o tsv)
+            roleDefinitionId=$(az role definition list --name '${{ env.CUSTOM_ROLE_NAME }}' --query '[0].name' -o tsv)
+          else
+            echo "Role $roleDefinitionId already present"
           fi
 
           az deployment sub create -n "${deploymentName}-ra" -l ${{ env.LOCATION }} --template-uri https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/subscription-level-deployments/subscription-role-assigment/azuredeploy.json --parameters principalId=${{ secrets.SERVICE_PRINCIPAL_OBJECT_ID }} --parameters roleDefinitionId=$roleDefinitionId
