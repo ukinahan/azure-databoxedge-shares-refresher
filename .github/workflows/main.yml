@@ -11,7 +11,8 @@ on:
 env:
   RESOURCE_GROUP: EdgeTest
   LOCATION: eastus
-  CUSTOM_ROLE_NAME: ultanki-azsedge-refresh
+  CUSTOM_ROLE_NAME: DataBoxEdgeShareRefresher
+
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   # This workflow contains a single job called "build"
@@ -42,7 +43,10 @@ jobs:
           if [ -z "$roleDefinitionId" ]
           then
             az deployment sub create -n "${deploymentName}-cr" -l ${{ env.LOCATION }} --template-uri https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/subscription-level-deployments/create-role-def/azuredeploy.json --parameters roleName='${{ env.CUSTOM_ROLE_NAME }}' --parameters actions='["*/read", "Microsoft.DataBoxEdge/dataBoxEdgeDevices/shares/refresh/action"]'
-  
+
+            # this wait will allow for the role definition to be available for the query  
+            sleep 10s
+
             roleDefinitionId=$(az role definition list --name '${{ env.CUSTOM_ROLE_NAME }}' --query '[0].name' -o tsv)
           else
             echo "Role $roleDefinitionId already present"
@@ -53,7 +57,7 @@ jobs:
     - name: Deploy ARM Template
       uses: Azure/cli@v1.0.0
       with:
-        # Specify the script here
+        # Deploys the ARM template in the repository
         inlineScript: |
           if [ $(az group exists --name ${{ env.RESOURCE_GROUP }}) = false ]; then
             az group create --name ${{ env.RESOURCE_GROUP }} --location ${{ env.LOCATION }}
