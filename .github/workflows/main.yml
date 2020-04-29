@@ -9,9 +9,9 @@ on:
     branches: [ master ]
 
 env:
-  RESOURCE_GROUP: EdgeTest
+  RESOURCE_GROUP: ASEShareRefresh
   LOCATION: eastus
-  CUSTOM_ROLE_NAME: DataBoxEdgeShareRefresher
+  CUSTOM_ROLE_NAME: ASEShareRefresher
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
